@@ -45,7 +45,7 @@ Follow the language of the latest user request for progress updates, final respo
 7. `check-model` CLIで最終render前の文書モデル品質を検査する。
 8. `render` CLIでHTML bundleを生成する。
 9. `validate` CLIでHTML、asset、comment schema、図・画像の非空を検証する。
-10. ユーザー向け最終HTMLでは既定で `preview` CLIを `--mode auto` で起動し、返却JSONの `url` と `stop_command` を最終応答に必ず書く。
+10. ユーザー向け最終HTMLでは既定で `preview` CLIを `--mode local`（127.0.0.1）で起動し、返却JSONの `url` と `stop_command` を最終応答に必ず書く。`--mode auto` / `tailscale`（tailnet 公開）は、ユーザーが別端末からの閲覧を明示した場合に限って使う。
 11. preview 起動直後に、Monitor ツールで `watch-comments` を開始する。これによりブラウザからのコメントを自動検知できるようになる。Monitor 起動コマンド: `python3 -m scripts.html_review_workbench.cli watch-comments --root <output-dir>`。自前の polling スクリプトではなく、この CLI を使うこと。イベント受信後の処理は `reviewable-design-doc` skill の「コメント自動回答と解決待ちゲート」セクションに従う。
 
 ## Basic Workflow
@@ -58,7 +58,7 @@ Follow the language of the latest user request for progress updates, final respo
 5. Read back the model before rendering and confirm that raw or unsupported content was not dumped into the model.
 6. If image blocks request generation, use the `imagegen` skill and attach images with `attach-image`.
 7. Run `check-model`, then `render`, then `validate`, then `preview`.
-8. For user-facing artifacts, use `preview --mode auto` by default and include the returned `url` and `stop_command` in the final response.
+8. For user-facing artifacts, use `preview --mode local` (127.0.0.1) by default and include the returned `url` and `stop_command` in the final response. Use `--mode auto` / `tailscale` (tailnet exposure) only when the user explicitly asks to view from another device.
 9. Start `watch-comments` immediately after preview startup so browser comments can be detected.
 
 ## HTML情報設計の規約
@@ -383,7 +383,7 @@ Treat HTML output as information design for the final bundle, not as text conver
 
 1. ユーザーが明示した対象ファイル、本文、直前の成果物をHTML化対象にする。
 2. 対象が曖昧で、直前の成果物も特定できない場合だけ、短く確認する。
-3. 対象を特定できる場合は、確認で止めずにHTML表現設計フェーズへ進み、`output/tmp/<purpose>/document-model.json` または `output/<YYYY-MM-DD>_<name>/document-model.json` を直接作る。
+3. 対象を特定できる場合は、確認で止めずにHTML表現設計フェーズへ進み、`<output-root>/tmp/<purpose>/document-model.json` または `<output-root>/<YYYY-MM-DD>_<name>/document-model.json` を直接作る（output root は運用側で定める、このリポジトリ外の永続ディレクトリへの絶対パス）。
 4. 作成する文書モデルは `schema_version`, `document_id`, `title`, `generated_at`, `blocks` を必ず持つ。
 5. `image.generation_status=requested` のブロックがある場合は画像生成と `attach-image` を完了してから、`check-model` → `render` → `validate` → `preview` まで進める。
 
@@ -435,6 +435,12 @@ CLI実行前に、この `SKILL.md` の配置から renderer repo root を決め
 作業ディレクトリにして実行する。現在のチャットやworkspaceのcwdをrepo rootとして扱わない。
 cwdに `scripts/html_review_workbench/cli.py` が無い場合は、代替HTMLを作らず、
 renderer repo rootへ移動してCLIを実行する。
+
+出力はこの規約の対象にしない。`render` の `--output`、`preview` / `validate` /
+`ingest-review` 等の `--root`、および bundle の置き場所は、renderer repo root 配下にも
+plugin cache 配下にも置かず、運用側で定めた永続 output root（このリポジトリの外）への
+絶対パスで指定する。renderer repo root が plugin cache 内に解決される場合
+（インストール配備）、cache への書き込みは一切行わない。
 <!-- END SHARED: repo-root-resolution -->
 
 <!-- BEGIN SHARED: cli-commands-core -->
@@ -460,7 +466,7 @@ python3 -m scripts.html_review_workbench.cli validate \
 
 python3 -m scripts.html_review_workbench.cli preview \
   --root <output-dir> \
-  --mode auto
+  --mode local
 
 python3 -m scripts.html_review_workbench.cli publish \
   --root <rendered-bundle-dir> \
@@ -473,7 +479,7 @@ Codex / Claude では preview コマンドを一回限りの shell から起動�
 <!-- END SHARED: preview-owner-pid-note -->
 
 <!-- BEGIN SHARED: tailscale-sandbox-fallback -->
-Codex sandbox内で `tailscale ip -4` が設定ファイル読み取りに失敗する場合は、preview本体をsandbox内で起動したまま、IPだけを小さいresolverで先に取得して渡す。
+ユーザーが別端末からの閲覧を明示して `--mode auto` / `tailscale` を使う場合に限る補足: Codex sandbox内で `tailscale ip -4` が設定ファイル読み取りに失敗する場合は、preview本体をsandbox内で起動したまま、IPだけを小さいresolverで先に取得して渡す。
 
 ```bash
 python3 -m scripts.html_review_workbench.preview_host_resolve
@@ -488,22 +494,22 @@ HTML_REVIEW_WORKBENCH_TAILSCALE_IP=<tailscale-ip> \
 長寿命の所有プロセスが明確に分かる場合だけ `--owner-pid <pid>` を使ってよい。一回限りの shell の `$$` や `$PPID` は短命プロセスを指すため使わない。
 
 ユーザーが明示的にプレビュー不要と言った場合、または自動テスト・fixture検証で副作用を抑える場合だけ `--mode off` を使う。ユーザー向け成果物では `--mode off` を既定にしない。
-成果物はユーザーが直接読む最終HTMLなら `output/<YYYY-MM-DD>_<name>/`、再利用しない検証なら `output/tmp/<purpose>/` に置く。
+成果物はユーザーが直接読む最終HTMLなら `<output-root>/<YYYY-MM-DD>_<name>/`、再利用しない検証なら `<output-root>/tmp/<purpose>/` に置く（output root は運用側で定める、このリポジトリ外の永続ディレクトリ。renderer repo root や plugin cache の中に置かない）。
 
 ## CLI Usage in Codex
 
-Call only the shared CLI. Resolve the renderer repo root from this `SKILL.md`: two levels above `skills/visual-html-renderer/SKILL.md`. Run every `python3 -m scripts.html_review_workbench.cli ...` command from that repo root. If the current workspace does not contain `scripts/html_review_workbench/cli.py`, move to the renderer repo root instead of creating fallback HTML. Use `--mode off` only for explicit no-preview requests or tests; user-facing artifacts should default to `--mode auto`.
+Call only the shared CLI. Resolve the renderer repo root from this `SKILL.md`: two levels above `skills/visual-html-renderer/SKILL.md`. Run every `python3 -m scripts.html_review_workbench.cli ...` command from that repo root. If the current workspace does not contain `scripts/html_review_workbench/cli.py`, move to the renderer repo root instead of creating fallback HTML. Outputs are exempt from this rule: pass `--output` and `--root` as absolute paths under the operator-configured persistent output root outside this repository, and never write outputs inside the renderer repo root or a plugin cache. Use `--mode off` only for explicit no-preview requests or tests; user-facing artifacts should default to `--mode local`, with `auto`/`tailscale` reserved for explicit cross-device viewing requests.
 
 ## Preview URL提示とライフサイクル
 
 - `preview` が `status: running` を返した場合、最終応答に `url` を必ず含める。ファイルパスだけで完了しない。
-- `preview` が `status: off` または `status: failed` の場合、URLが無い理由を明示し、可能なら `--mode auto` で再実行してURL提示まで進める。
+- `preview` が `status: off` または `status: failed` の場合、URLが無い理由を明示し、可能なら同じモード指定で再実行してURL提示まで進める。
 - 標準では `--owner-pid` を渡さず、24時間アクセスが無い場合に idle timeout で自動停止させる。長寿命の所有プロセスが明確な場合だけ `--owner-pid <pid>` を使う。
 - 手動停止が必要な時だけ、返却JSONの `stop_command` を使う。PIDなしで全previewを停止しない。
 
 ## Preview URL and Lifecycle
 
-When `preview` returns `status: running`, include the `url` in the final response; a file path alone is not completion. If preview is off or failed, state the reason and try `--mode auto` when appropriate. Do not pass `--owner-pid` by default; the preview server stops after 24 hours without access. Use the returned `stop_command` only when manual cleanup is needed.
+When `preview` returns `status: running`, include the `url` in the final response; a file path alone is not completion. If preview is off or failed, state the reason and retry with the same mode when appropriate. Do not pass `--owner-pid` by default; the preview server stops after 24 hours without access. Use the returned `stop_command` only when manual cleanup is needed.
 
 ## 完了時の確認
 

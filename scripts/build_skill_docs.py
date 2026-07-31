@@ -45,7 +45,7 @@ python3 -m scripts.html_review_workbench.cli validate \\
 
 python3 -m scripts.html_review_workbench.cli preview \\
   --root <output-dir> \\
-  --mode auto
+  --mode local
 
 python3 -m scripts.html_review_workbench.cli publish \\
   --root <rendered-bundle-dir> \\
@@ -75,7 +75,7 @@ python3 -m scripts.html_review_workbench.cli validate \\
 
 python3 -m scripts.html_review_workbench.cli preview \\
   --root <output-dir> \\
-  --mode auto
+  --mode local
 ```"""
 
 
@@ -106,6 +106,7 @@ TARGETS = (
                 "標準手順では `--owner-pid` を渡さない。preview server は 24時間アクセスが無い場合に idle timeout で自動停止する。"
             ),
             "tailscale_sandbox_fallback_ja": (
+                "ユーザーが別端末からの閲覧を明示して `--mode auto` / `tailscale` を使う場合に限る補足: "
                 "Codex sandbox内で `tailscale ip -4` が設定ファイル読み取りに失敗する場合は、"
                 "preview本体をsandbox内で起動したまま、IPだけを小さいresolverで先に取得して渡す。\n\n"
                 "```bash\n"
@@ -136,8 +137,9 @@ TARGETS = (
             "md_file_prohibition_ja": (
                 "設計資料作成は、`.md` 原稿をHTMLへ変換する作業ではない。"
                 "`reviewable-design-doc` は、設計内容を最初からレビュー可能なHTML bundleの情報設計として作る。\n\n"
-                "- 新規に設計資料を作る場合、最初の保存対象は `output/tmp/<purpose>/document-model.json` "
-                "または `output/<YYYY-MM-DD>_<name>/document-model.json` にする。\n"
+                "- 新規に設計資料を作る場合、最初の保存対象は `<output-root>/tmp/<purpose>/document-model.json` "
+                "または `<output-root>/<YYYY-MM-DD>_<name>/document-model.json` にする"
+                "（output root は運用側で定める、このリポジトリ外の永続ディレクトリへの絶対パス）。\n"
                 "- `.md` ファイルを設計本文の下書き、中間成果物、HTML化対象として作らない。\n"
                 "- 一時的に自然文入力を保存する必要がある場合だけ、"
                 "`source.txt`, `input.txt`, `source-content.txt` のようなプレーンテキスト名を使う。"
@@ -150,6 +152,7 @@ TARGETS = (
                 "一回限りの shell の `$$` や `$PPID` は短命プロセスを指すため使わない。"
             ),
             "tailscale_sandbox_fallback_ja": (
+                "ユーザーが別端末からの閲覧を明示して `--mode auto` を使う場合に限る補足: "
                 "Codex sandbox内で `tailscale ip -4` が設定ファイル読み取りに失敗する場合は、"
                 "`visual-html-renderer` と同じく `python3 -m scripts.html_review_workbench.preview_host_resolve` "
                 "で取得したIPv4を `HTML_REVIEW_WORKBENCH_TAILSCALE_IP` に渡してから `preview --mode auto` を起動する。"

@@ -32,7 +32,7 @@ Follow the language of the latest user request for progress updates, final respo
 7. `check-model` CLIで最終render前の文書モデル品質を検査する。
 8. `render` CLIでHTML bundleを生成する。
 9. `validate` CLIでHTML bundleを検証する。
-10. ユーザー向け最終HTMLでは既定で `preview` CLIを `--mode auto` で起動し、返却JSONの `url` と `stop_command` を最終応答に必ず書く。
+10. ユーザー向け最終HTMLでは既定で `preview` CLIを `--mode local`（127.0.0.1）で起動し、返却JSONの `url` と `stop_command` を最終応答に必ず書く。`--mode auto` / `tailscale`（tailnet 公開）は、ユーザーが別端末からの閲覧を明示した場合に限って使う。
 11. preview 起動直後に、Monitor ツールで `watch-comments` を開始する。これによりブラウザからのコメントを自動検知できるようになる。Monitor 起動コマンド: `python3 -m scripts.html_review_workbench.cli watch-comments --root <output-dir>`。イベント受信後の処理は「コメント自動回答と解決待ちゲート」セクションに従う。
 12. ユーザーがコメントを入れたら「レビューコメントへの対応」セクションに従う。
 
@@ -52,7 +52,7 @@ Follow the language of the latest user request for progress updates, final respo
 <!-- BEGIN SHARED: md-file-prohibition -->
 設計資料作成は、`.md` 原稿をHTMLへ変換する作業ではない。`reviewable-design-doc` は、設計内容を最初からレビュー可能なHTML bundleの情報設計として作る。
 
-- 新規に設計資料を作る場合、最初の保存対象は `output/tmp/<purpose>/document-model.json` または `output/<YYYY-MM-DD>_<name>/document-model.json` にする。
+- 新規に設計資料を作る場合、最初の保存対象は `<output-root>/tmp/<purpose>/document-model.json` または `<output-root>/<YYYY-MM-DD>_<name>/document-model.json` にする（output root は運用側で定める、このリポジトリ外の永続ディレクトリへの絶対パス）。
 - `.md` ファイルを設計本文の下書き、中間成果物、HTML化対象として作らない。
 - 一時的に自然文入力を保存する必要がある場合だけ、`source.txt`, `input.txt`, `source-content.txt` のようなプレーンテキスト名を使う。
 <!-- END SHARED: md-file-prohibition -->
@@ -300,7 +300,7 @@ Use Mermaid source supported by mermaid.js v11. The bundled `mermaid.min.js` ren
 
 ## Design Document Model Rules
 
-This skill does not convert a `.md` draft into HTML. It designs a reviewable HTML bundle from the beginning. Store new models under `output/tmp/<purpose>/document-model.json` or `output/<YYYY-MM-DD>_<name>/document-model.json`. If temporary natural-language input must be saved, use plain text filenames such as `source.txt`, `input.txt`, or `source-content.txt`. Use `heading_level: 2` for major sections and `heading_level: 3` for detailed subsections. Represent comparisons with tables, steps with ordered lists, parallel items with lists, commands and logs with code blocks, flows and dependencies with diagrams, and decisions or cautions with callouts.
+This skill does not convert a `.md` draft into HTML. It designs a reviewable HTML bundle from the beginning. Store new models under `<output-root>/tmp/<purpose>/document-model.json` or `<output-root>/<YYYY-MM-DD>_<name>/document-model.json`, where the output root is the operator-configured persistent directory outside this repository (never inside the renderer repo root or a plugin cache). If temporary natural-language input must be saved, use plain text filenames such as `source.txt`, `input.txt`, or `source-content.txt`. Use `heading_level: 2` for major sections and `heading_level: 3` for detailed subsections. Represent comparisons with tables, steps with ordered lists, parallel items with lists, commands and logs with code blocks, flows and dependencies with diagrams, and decisions or cautions with callouts.
 
 ## レビューコメントへの対応
 
@@ -401,6 +401,12 @@ CLI実行前に、この `SKILL.md` の配置から renderer repo root を決め
 作業ディレクトリにして実行する。現在のチャットやworkspaceのcwdをrepo rootとして扱わない。
 cwdに `scripts/html_review_workbench/cli.py` が無い場合は、代替HTMLを作らず、
 renderer repo rootへ移動してCLIを実行する。
+
+出力はこの規約の対象にしない。`render` の `--output`、`preview` / `validate` /
+`ingest-review` 等の `--root`、および bundle の置き場所は、renderer repo root 配下にも
+plugin cache 配下にも置かず、運用側で定めた永続 output root（このリポジトリの外）への
+絶対パスで指定する。renderer repo root が plugin cache 内に解決される場合
+（インストール配備）、cache への書き込みは一切行わない。
 <!-- END SHARED: repo-root-resolution -->
 
 <!-- BEGIN SHARED: cli-commands-core -->
@@ -426,7 +432,7 @@ python3 -m scripts.html_review_workbench.cli validate \
 
 python3 -m scripts.html_review_workbench.cli preview \
   --root <output-dir> \
-  --mode auto
+  --mode local
 ```
 <!-- END SHARED: cli-commands-core -->
 
@@ -435,7 +441,7 @@ Codex / Claude では preview コマンドを一回限りの shell から起動�
 <!-- END SHARED: preview-owner-pid-note -->
 
 <!-- BEGIN SHARED: tailscale-sandbox-fallback -->
-Codex sandbox内で `tailscale ip -4` が設定ファイル読み取りに失敗する場合は、`visual-html-renderer` と同じく `python3 -m scripts.html_review_workbench.preview_host_resolve` で取得したIPv4を `HTML_REVIEW_WORKBENCH_TAILSCALE_IP` に渡してから `preview --mode auto` を起動する。
+ユーザーが別端末からの閲覧を明示して `--mode auto` を使う場合に限る補足: Codex sandbox内で `tailscale ip -4` が設定ファイル読み取りに失敗する場合は、`visual-html-renderer` と同じく `python3 -m scripts.html_review_workbench.preview_host_resolve` で取得したIPv4を `HTML_REVIEW_WORKBENCH_TAILSCALE_IP` に渡してから `preview --mode auto` を起動する。
 <!-- END SHARED: tailscale-sandbox-fallback -->
 
 `preview` が `status: running` を返した場合、レビュー依頼の最終応答に `url` を必ず含める。ファイルパスだけで完了しない。標準では `--owner-pid` を渡さず、24時間アクセスが無い場合に idle timeout で自動停止させる。長寿命の所有プロセスが明確な場合だけ `--owner-pid <pid>` を使う。
