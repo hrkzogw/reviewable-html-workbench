@@ -11,29 +11,35 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Local fork (D2/D3): trigger sets narrowed to review-iteration intent /
+# by-name invocation. These constants pin the FORK trigger contract; the
+# removed generic triggers are pinned as absent below.
 VISUAL_TRIGGER_EXAMPLES = [
+    "レビュー可能なHTML",
+    "レビューHTML",
+    "コメントできるHTML",
+    "reviewable HTML",
+    "make this a reviewable HTML document",
+]
+
+VISUAL_REMOVED_TRIGGERS = [
     "html出力して",
     "HTMLにして",
     "HTMLで出して",
     "図示つきHTML",
-    "visual HTML renderer",
     "render this as HTML",
     "turn this into HTML",
     "create an HTML preview",
     "generate a visual HTML report",
-    "make this a reviewable HTML document",
     "diagrammed HTML report",
 ]
 
 REVIEWABLE_TRIGGER_EXAMPLES = [
     "レビュー可能な設計資料",
-    "設計資料をHTMLで",
-    "design doc",
     "reviewable design doc",
     "レビュー終わったので確認して",
     "コメントを反映して",
     "create a reviewable design doc",
-    "make a design doc in HTML",
     "build a review-ready design document",
     "ingest review comments",
     "process review comments",
@@ -41,7 +47,16 @@ REVIEWABLE_TRIGGER_EXAMPLES = [
     "apply resolved comments",
 ]
 
+REVIEWABLE_REMOVED_TRIGGERS = [
+    "設計資料をHTMLで",
+    "make a design doc in HTML",
+]
+
 PLAN_PREVIEW_TRIGGER_EXAMPLES = [
+    "名指し",
+]
+
+PLAN_PREVIEW_REMOVED_TRIGGERS = [
     "planをグラフィカルに見たい",
     "planを図で確認したい",
     "この計画をHTMLでプレビューして",
@@ -117,21 +132,44 @@ class CodexSkillIntegrationTest(unittest.TestCase):
         self.assertEqual(plan_preview["entrypoint"], "python3 -m scripts.html_review_workbench.cli")
         self.assertEqual(plan_preview["working_directory"], "plugin_root")
         self.assertEqual(plan_preview["workflow"], ["plan-preview"])
+        # Local fork (D2): by-name invocation only; substring check because the
+        # yaml carries a single descriptive entry rather than trigger phrases.
+        joined_examples = " ".join(plan_preview["trigger_examples"])
         for trigger in PLAN_PREVIEW_TRIGGER_EXAMPLES:
-            self.assertIn(trigger, plan_preview["trigger_examples"])
+            self.assertIn(trigger, joined_examples)
 
     def test_trigger_examples_are_documented_in_skills_and_readme(self) -> None:
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        """Local fork (D2/D3): pin the narrowed trigger sets.
+
+        The fork does not keep README trigger parity for narrowed triggers
+        (README stays upstream); this test pins the SKILL.md contract only:
+        the fork's positive triggers are present and the removed generic
+        triggers stay absent in the description frontmatter.
+        """
         skill_trigger_sets = [
-            (ROOT / "skills/visual-html-renderer/SKILL.md", VISUAL_TRIGGER_EXAMPLES),
-            (ROOT / "skills/reviewable-design-doc/SKILL.md", REVIEWABLE_TRIGGER_EXAMPLES),
-            (ROOT / "skills/plan-preview/SKILL.md", PLAN_PREVIEW_TRIGGER_EXAMPLES),
+            (
+                ROOT / "skills/visual-html-renderer/SKILL.md",
+                VISUAL_TRIGGER_EXAMPLES,
+                VISUAL_REMOVED_TRIGGERS,
+            ),
+            (
+                ROOT / "skills/reviewable-design-doc/SKILL.md",
+                REVIEWABLE_TRIGGER_EXAMPLES,
+                REVIEWABLE_REMOVED_TRIGGERS,
+            ),
+            (
+                ROOT / "skills/plan-preview/SKILL.md",
+                PLAN_PREVIEW_TRIGGER_EXAMPLES,
+                PLAN_PREVIEW_REMOVED_TRIGGERS,
+            ),
         ]
-        for skill_path, triggers in skill_trigger_sets:
+        for skill_path, triggers, removed in skill_trigger_sets:
             skill_text = skill_path.read_text(encoding="utf-8")
+            description = skill_text.split("---", 2)[1]
             for trigger in triggers:
-                self.assertIn(trigger, skill_text)
-                self.assertIn(trigger, readme)
+                self.assertIn(trigger, skill_text, f"{skill_path.name}: {trigger}")
+            for trigger in removed:
+                self.assertNotIn(trigger, description, f"{skill_path.name}: {trigger}")
 
     def test_skills_document_language_behavior(self) -> None:
         for skill in ["visual-html-renderer", "reviewable-design-doc", "plan-preview"]:
@@ -142,7 +180,9 @@ class CodexSkillIntegrationTest(unittest.TestCase):
     def test_visual_skill_handles_natural_html_output_request_without_model_argument(self) -> None:
         visual = (ROOT / "skills/visual-html-renderer/SKILL.md").read_text(encoding="utf-8")
 
-        self.assertIn("html出力して", visual)
+        # Local fork (D3): natural-language firing requires review-iteration intent.
+        self.assertIn("レビュー可能なHTMLにして", visual)
+        self.assertIn("レビュー往復意図のない一般の HTML 化依頼では発火させない", visual)
         self.assertIn("文書モデルが未指定の場合", visual)
         self.assertIn("HTML情報設計", visual)
         self.assertIn("HTML表現設計フェーズ", visual)
@@ -176,30 +216,25 @@ class CodexSkillIntegrationTest(unittest.TestCase):
         self.assertIn("24時間アクセスが無い場合", reviewable)
 
     def test_plan_preview_skill_guides_plan_mode_without_user_cli(self) -> None:
+        """Local fork (D2): plan-preview fires only on explicit by-name requests."""
         plan_preview = (ROOT / "skills/plan-preview/SKILL.md").read_text(encoding="utf-8")
 
-        self.assertIn("Plan Mode", plan_preview)
-        self.assertIn("`<proposed_plan>`", plan_preview)
-        self.assertIn("graphical plan review", plan_preview)
+        self.assertIn("名指しで依頼した場合のみ", plan_preview)
         self.assertIn("python3 -m scripts.html_review_workbench.cli plan-preview", plan_preview)
-        self.assertIn("--mode auto", plan_preview)
-        self.assertIn("Tailscale IPv4 を検出できる場合は Tailscale URL を優先", plan_preview)
+        self.assertIn("--mode local", plan_preview)
+        self.assertIn("別端末からの閲覧を明示した場合に限り", plan_preview)
         self.assertIn("HTML_REVIEW_WORKBENCH_TAILSCALE_IP", plan_preview)
-        self.assertIn("Plan preview: http://<tailscale-ip-or-127.0.0.1>:<port>/index.html", plan_preview)
         self.assertIn("Plan preview: unavailable (<short reason>)", plan_preview)
         self.assertIn("ユーザーに CLI を実行させない", plan_preview)
-        self.assertIn("正式な実装基準は `<proposed_plan>`", plan_preview)
-        self.assertIn("Plan Mode の前にhookを自動追加しない", plan_preview)
-        self.assertIn("Plan Mode 中の計画確認プレビューは、このskillが優先入口", plan_preview)
-        self.assertIn("`visual-html-renderer` の `document-model.json`", plan_preview)
-        self.assertIn("During Plan Mode, use this skill for plan preview requests instead of `visual-html-renderer`", plan_preview)
-        self.assertIn("計画全文を `source_text` にそのまま入れる", plan_preview)
+        self.assertIn("hookを自動追加しない", plan_preview)
+        self.assertIn("計画本文の全文を `source_text` にそのまま入れる", plan_preview)
         self.assertIn("要約・並べ替え・削除・言い換えは禁止", plan_preview)
         self.assertIn("受理されるトップレベル key は `title` / `source_text` / `diagrams` だけ", plan_preview)
         self.assertIn("HTMLは原文と同じ章構成・同じ内容で表示", plan_preview)
         self.assertIn("HTMLに追加されるのは、agentが `diagrams` で指定した図だけ", plan_preview)
         self.assertIn("The accepted top-level keys are only `title`, `source_text`, and `diagrams`", plan_preview)
         self.assertIn("The HTML preview must show the same section structure and same content as the original plan", plan_preview)
+        self.assertNotIn("優先入口", plan_preview)
         self.assertNotIn("Tailscale / 外部公開", plan_preview)
 
     def test_same_fixture_keeps_artifact_structure_across_skill_workflows(self) -> None:
