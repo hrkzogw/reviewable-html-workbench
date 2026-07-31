@@ -1,8 +1,8 @@
 ---
 name: reviewable-design-doc
 description: |
-  要求・設計・アーキテクチャ・未決事項を整理し、レビュー可能な設計資料HTMLを作りたい時に使う。Use this skill to structure requirements, design, architecture, alternatives, decisions, and unresolved issues into a review-ready HTML design document. レビュー完了後はHTMLコメントを読み込み、設計へ反映し、確認が必要な場合はHTMLコメントスレッドへagent返信を書き戻す。Triggers: レビュー可能な設計資料, 設計資料をHTMLで, design doc, reviewable design doc, レビュー終わったので確認して, コメントを反映して, create a reviewable design doc, make a design doc in HTML, build a review-ready design document, ingest review comments, process review comments, reply to review comments, apply resolved comments。使用しない場面: 汎用HTMLレンダリングだけ、Notion投稿だけ、既存HTMLの見た目修正だけ。Do not use for: generic HTML rendering, Notion-only publishing, or small visual tweaks to existing HTML.
-argument-hint: "[設計対象またはdocument-model.json] [--review-mode standalone|review-server] [--preview auto|tailscale|local|off]"
+  要求・設計・アーキテクチャ・未決事項を、ブラウザ上のインラインコメントでレビュー往復する前提の設計資料 HTML として作りたい時に使う。Use this skill only when the user wants a review-ready design document that will receive inline browser comments and go through comment-driven revision cycles. レビュー完了後はHTMLコメントを読み込み、設計へ反映し、確認が必要な場合はHTMLコメントスレッドへagent返信を書き戻す。Triggers: レビュー可能な設計資料, レビュー可能なHTML, reviewable design doc, create a reviewable design doc, build a review-ready design document, レビュー終わったので確認して, コメントを反映して, ingest review comments, process review comments, reply to review comments, apply resolved comments。使用しない場面: レビュー往復を伴わない一般の HTML 化・汎用HTMLレンダリング、判断カード・意思決定資料の提示（利用環境の既定の判断資料経路を使う）、講義資料・スライド、Notion投稿だけ、既存HTMLの見た目修正だけ。Do not use for: generic HTML rendering without a review loop, decision-card or decision-material presentation, lecture materials, Notion-only publishing, or small visual tweaks to existing HTML.
+argument-hint: "[設計対象またはdocument-model.json] [--review-mode standalone|review-server] [--preview local|auto|tailscale|off]"
 ---
 
 # reviewable-design-doc

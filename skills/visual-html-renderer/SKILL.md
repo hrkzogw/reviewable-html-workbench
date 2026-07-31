@@ -1,8 +1,8 @@
 ---
 name: visual-html-renderer
 description: |
-  HTMLを最終成果物として生成・検証・プレビューしたい時に使う共通レンダラー。Use this shared renderer when the user wants content turned into a final, validated, previewable HTML artifact. 現行rendererの表現能力を前提にagentが文書モデルを直接設計し、表・リスト・コード・注記・図・生成画像を選んだHTML bundleとセッション限定のプレビューURLを提示する。Triggers: html出力して, HTMLにして, HTMLで出して, この内容をHTMLで出して, HTMLでプレビューして, HTMLレンダラー, HTML出力を共通化, 図示つきHTML, visual HTML renderer, render this as HTML, turn this into HTML, create an HTML preview, generate a visual HTML report, make this a reviewable HTML document, diagrammed HTML report。使用しない場面: Plan Mode 中の計画確認プレビュー、設計内容そのものの作成、Notion投稿だけ、既存HTMLの軽微な見た目修正だけ。Do not use for: Plan Mode proposal previews, creating the design content itself, Notion-only publishing, or minor visual tweaks to existing HTML.
-argument-hint: "[document-model.json] [--output output/<date>_<slug>] [--preview auto|tailscale|local|off]"
+  レビュー往復（ブラウザ上のインラインコメントで指摘を受け、返信・反映する）を前提とした reviewable HTML 文書を生成・検証・プレビューしたい時に使う共通レンダラー。Use this shared renderer only when the user wants a reviewable HTML artifact — a document meant to receive inline browser review comments and go through comment-driven revision cycles. レビュー往復を伴わない一般の HTML 化には使わない。現行rendererの表現能力を前提にagentが文書モデルを直接設計し、HTML bundleとプレビューURLを提示する。Triggers: レビュー可能なHTML, レビューHTML, コメントできるHTML, レビュー用にHTML化, reviewable HTML, make this a reviewable HTML document。使用しない場面: レビュー往復を伴わない一般の HTML 化・単発ページ生成、判断カード・意思決定資料の提示（利用環境の既定の判断資料経路を使う）、プランの確認プレビュー、講義資料・スライド、設計内容そのものの作成、Notion投稿だけ、既存HTMLの軽微な見た目修正だけ。Do not use for: generic HTML output without a review loop, decision-card or decision-material presentation (use the environment's default decision-material route), plan proposal previews, lecture materials, creating the design content itself, Notion-only publishing, or minor visual tweaks to existing HTML.
+argument-hint: "[document-model.json] [--output <output-root>/<date>_<slug> (絶対パス, リポジトリ外の運用側 output root)] [--preview local|auto|tailscale|off]"
 strict_procedure: true
 ---
 
@@ -377,7 +377,7 @@ Treat HTML output as information design for the final bundle, not as text conver
 
 ## 入力モデル未指定時の規約
 
-ユーザーが「html出力して」「HTMLにして」「HTMLで出して」「render this as HTML」「turn this into HTML」「create an HTML preview」「generate a visual HTML report」「make this a reviewable HTML document」「diagrammed HTML report」のように自然文で依頼し、`document-model.json` を指定していない場合も、このskillを発火させる。
+ユーザーが「レビュー可能なHTMLにして」「コメントできるHTMLで」「make this a reviewable HTML document」のようにレビュー往復意図を含む自然文で依頼し、`document-model.json` を指定していない場合も、このskillを発火させる。レビュー往復意図のない一般の HTML 化依頼では発火させない。
 
 その場合は、次の順で入力を決める。
 
@@ -391,7 +391,7 @@ Treat HTML output as information design for the final bundle, not as text conver
 
 ## When No Input Model Is Provided
 
-Natural requests such as `render this as HTML`, `turn this into HTML`, `create an HTML preview`, `generate a visual HTML report`, `make this a reviewable HTML document`, and `diagrammed HTML report` should still trigger this skill. Use the explicitly named file, pasted content, or latest artifact as the HTML source. Ask only when the target cannot be identified. If the target is clear, proceed into HTML information design and create `output/tmp/<purpose>/document-model.json` or `output/<YYYY-MM-DD>_<name>/document-model.json` directly.
+Natural requests that carry review-iteration intent, such as `make this a reviewable HTML document`, should still trigger this skill even without a `document-model.json`. Requests for generic HTML output without a review loop should not. Use the explicitly named file, pasted content, or latest artifact as the HTML source. Ask only when the target cannot be identified. If the target is clear, proceed into HTML information design and create `<output-root>/tmp/<purpose>/document-model.json` or `<output-root>/<YYYY-MM-DD>_<name>/document-model.json` directly (the output root is the operator-configured persistent directory outside this repository).
 
 ## render前自己レビュー
 
