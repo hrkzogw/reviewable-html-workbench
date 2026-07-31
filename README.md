@@ -383,3 +383,7 @@ PYTHONPYCACHEPREFIX="$PWD/tmp/python-pycache" python3 -m unittest discover -s te
 ```
 
 </details>
+
+## Fork note
+
+This fork ([hrkzogw](https://github.com/hrkzogw/reviewable-html-workbench)) tracks upstream with local adaptations on the `local-adaptations` branch: the bundled plan-mode gate hooks are disabled, skill triggers are narrowed to review-iteration intent, preview defaults to `--mode local`, and outputs are redirected to an operator-configured directory outside the repository. See commits tagged D1–D7.
