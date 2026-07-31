@@ -90,40 +90,29 @@ class ProjectLayoutTest(unittest.TestCase):
             self.assertIn("Triggers:", text)
             self.assertIn("使用しない場面:", text)
 
-    def test_plan_preview_hooks_define_plan_mode_pretooluse_matchers(self) -> None:
+    def test_plan_preview_hooks_are_disabled_in_this_fork(self) -> None:
+        """Local fork (D1): the bundled plan-mode gate hooks must stay disabled.
+
+        Upstream ships a PreToolUse gate that denies ExitPlanMode unless the
+        plan carries a preview line. This fork empties hooks.json so no hook
+        registers at all; this test pins that contract against upstream merges
+        reintroducing the gate.
+        """
         path = ROOT / "hooks" / "hooks.json"
         self.assertTrue(path.exists())
         payload = json.loads(path.read_text(encoding="utf-8"))
-        pre_tool_use = payload["hooks"]["PreToolUse"]
+        self.assertEqual(payload, {"hooks": {}})
 
-        by_matcher = {entry["matcher"]: entry for entry in pre_tool_use}
-        self.assertIn("ExitPlanMode", by_matcher)
-        self.assertIn("EnterPlanMode", by_matcher)
+    def test_plan_preview_hook_scripts_remain_as_upstream_compat_files(self) -> None:
+        """Local fork (D1/D4): gate scripts are kept as unused upstream-compat files.
 
-        exit_commands = [hook["command"] for hook in by_matcher["ExitPlanMode"]["hooks"]]
-        enter_commands = [hook["command"] for hook in by_matcher["EnterPlanMode"]["hooks"]]
-        self.assertTrue(any("gate.sh" in command for command in exit_commands))
-        self.assertTrue(any("cleanup.sh" in command for command in enter_commands))
-
-    def test_plan_preview_hook_scripts_are_executable(self) -> None:
-        hooks_payload = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
-        commands = [
-            hook["command"]
-            for entry in hooks_payload["hooks"]["PreToolUse"]
-            for hook in entry["hooks"]
-        ]
-        expected_scripts = {
+        hooks.json no longer references them, but they stay present and
+        executable to minimize merge friction with upstream changes.
+        """
+        for path in (
             ROOT / "hooks" / "plan-preview-gate.sh",
             ROOT / "hooks" / "plan-preview-cleanup.sh",
-        }
-
-        referenced_scripts = {
-            ROOT / command.split("${CLAUDE_PLUGIN_ROOT}/", 1)[1].split('"', 1)[0]
-            for command in commands
-            if "${CLAUDE_PLUGIN_ROOT}/" in command
-        }
-        self.assertEqual(referenced_scripts, expected_scripts)
-        for path in expected_scripts:
+        ):
             self.assertTrue(path.exists(), str(path))
             self.assertTrue(os.access(path, os.X_OK), str(path))
 
