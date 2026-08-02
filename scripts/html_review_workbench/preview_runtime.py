@@ -161,11 +161,16 @@ class ReviewPreviewHandler(SimpleHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
-        last_id_str = self.headers.get("Last-Event-ID", "0")
-        try:
-            last_id = int(last_id_str)
-        except ValueError:
-            last_id = 0
+        # Last-Event-ID はブラウザが再接続時にのみ送る。ヘッダの無い新規接続で
+        # 履歴を再生すると、過去の document_updated がリロードのたびに通知される。
+        last_id_str = self.headers.get("Last-Event-ID")
+        if last_id_str is None:
+            last_id = self.event_bus.last_id
+        else:
+            try:
+                last_id = int(last_id_str)
+            except ValueError:
+                last_id = self.event_bus.last_id
 
         try:
             for event in self.event_bus.subscribe(last_event_id=last_id):

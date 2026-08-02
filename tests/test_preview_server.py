@@ -384,6 +384,53 @@ class PreviewServerTest(unittest.TestCase):
                 session.process.terminate()
                 session.process.wait(timeout=5)
 
+    def test_preview_server_fresh_sse_connection_skips_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "index.html").write_text("<h1>Preview</h1>", encoding="utf-8")
+
+            session = start_preview(root, "local", owner_pid=os.getpid(), idle_timeout=0)
+            try:
+                events_url = session.url.replace("/index.html", "/events")
+
+                def post_event(event_type: str, message: str) -> None:
+                    request = urllib.request.Request(
+                        events_url,
+                        data=json.dumps({"type": event_type, "message": message}).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(request, timeout=5) as response:
+                        self.assertEqual(response.status, 200)
+
+                post_event("document_updated", "stale history event")
+
+                # Last-Event-ID を送らない新規接続では、接続前のイベントは流れない。
+                stream = urllib.request.urlopen(events_url, timeout=5)
+                try:
+                    time.sleep(0.2)
+                    post_event("document_updated", "fresh event")
+                    event: dict[str, object] = {}
+                    data = ""
+                    while True:
+                        line = stream.readline().decode("utf-8").strip()
+                        if line == "":
+                            break
+                        if line.startswith("event: "):
+                            event["event"] = line[7:]
+                        elif line.startswith("data: "):
+                            data = line[6:]
+                    event["data"] = json.loads(data)
+                finally:
+                    stream.close()
+
+                self.assertEqual(event["event"], "document_updated")
+                self.assertEqual(event["data"]["message"], "fresh event")
+            finally:
+                self.assertIsNotNone(session.process)
+                session.process.terminate()
+                session.process.wait(timeout=5)
+
     def test_preview_server_starts_without_owner_pid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -438,8 +485,9 @@ def _read_json_url(url: str) -> object:
         return json.loads(response.read().decode("utf-8"))
 
 
-def _read_sse_event(url: str) -> dict[str, object]:
-    with urllib.request.urlopen(url, timeout=5) as response:
+def _read_sse_event(url: str, last_event_id: int = 0) -> dict[str, object]:
+    request = urllib.request.Request(url, headers={"Last-Event-ID": str(last_event_id)})
+    with urllib.request.urlopen(request, timeout=5) as response:
         event: dict[str, object] = {}
         data = ""
         while True:

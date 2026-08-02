@@ -157,8 +157,9 @@ def _read_comments(root: Path) -> dict[str, object]:
     return json.loads((root / "annotations/comments.json").read_text(encoding="utf-8"))
 
 
-def _read_sse_event(url: str) -> dict[str, object]:
-    with urllib.request.urlopen(url, timeout=5) as response:
+def _read_sse_event(url: str, last_event_id: int = 0) -> dict[str, object]:
+    request = urllib.request.Request(url, headers={"Last-Event-ID": str(last_event_id)})
+    with urllib.request.urlopen(request, timeout=5) as response:
         event: dict[str, object] = {}
         data = ""
         while True:
