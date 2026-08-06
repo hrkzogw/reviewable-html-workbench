@@ -130,11 +130,11 @@ class PreviewServerTest(unittest.TestCase):
                 session.process.terminate()
                 session.process.wait(timeout=5)
 
-    def test_preview_default_idle_timeout_is_24_hours(self) -> None:
+    def test_preview_default_idle_timeout_is_2_hours(self) -> None:
         from scripts.html_review_workbench.cli import build_parser
 
         args = build_parser().parse_args(["preview", "--root", "/tmp/out", "--mode", "local"])
-        self.assertEqual(DEFAULT_PREVIEW_IDLE_TIMEOUT_SECONDS, 24 * 60 * 60)
+        self.assertEqual(DEFAULT_PREVIEW_IDLE_TIMEOUT_SECONDS, 2 * 60 * 60)
         self.assertEqual(args.idle_timeout, DEFAULT_PREVIEW_IDLE_TIMEOUT_SECONDS)
 
     def test_wait_for_ready_signal_reads_from_non_socket_pipe(self) -> None:

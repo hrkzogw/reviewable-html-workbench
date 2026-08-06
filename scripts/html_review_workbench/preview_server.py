@@ -29,7 +29,7 @@ from scripts.html_review_workbench.preview_runtime import (
 
 PreviewMode = Literal["auto", "tailscale", "local"]
 ResolvedMode = Literal["tailscale", "local"]
-DEFAULT_PREVIEW_IDLE_TIMEOUT_SECONDS = 24 * 60 * 60
+DEFAULT_PREVIEW_IDLE_TIMEOUT_SECONDS = 2 * 60 * 60
 
 
 class PreviewConfigurationError(ValueError):

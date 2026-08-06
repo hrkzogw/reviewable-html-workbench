@@ -17,7 +17,7 @@ from scripts.html_review_workbench.comment_store import CommentStore, CommentSto
 from scripts.html_review_workbench.common import pid_is_alive
 from scripts.html_review_workbench.event_bus import EventBus, format_sse
 
-DEFAULT_PREVIEW_IDLE_TIMEOUT_SECONDS = 24 * 60 * 60
+DEFAULT_PREVIEW_IDLE_TIMEOUT_SECONDS = 2 * 60 * 60
 
 
 STATE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
