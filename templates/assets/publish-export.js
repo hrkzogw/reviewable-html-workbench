@@ -1,7 +1,9 @@
 (function () {
   "use strict";
 
-  const MERMAID_INIT_JS = "mermaid.initialize({startOnLoad: true, theme: 'dark', securityLevel: 'strict'})";
+  // scripts/html_review_workbench/common.py の MERMAID_INIT_JS と同じ内容を保つ
+  // (通常は書き出し元の init script をそのまま引き継ぐので、これは取得できない時の予備)。
+  const MERMAID_INIT_JS = "(function(){function t(){var d=document.documentElement.dataset.theme;if(d!=='dark'&&d!=='light'){d=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}return d==='dark'?'dark':'default';}function boot(){mermaid.initialize({startOnLoad:false,theme:t(),securityLevel:'strict'});}window.__rhwRerenderMermaid=function(){var n=Array.prototype.slice.call(document.querySelectorAll('.mermaid[data-mermaid-source]'));if(!n.length){return Promise.resolve();}n.forEach(function(el){el.removeAttribute('data-processed');el.textContent=el.getAttribute('data-mermaid-source');});boot();return Promise.resolve(mermaid.run({nodes:n})).catch(function(){});};boot();document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('.mermaid').forEach(function(el){el.setAttribute('data-mermaid-source',el.textContent);});mermaid.run();if(window.matchMedia){var mq=window.matchMedia('(prefers-color-scheme: dark)');var f=function(){var d=document.documentElement.dataset.theme;if(d==='dark'||d==='light'){return;}window.__rhwRerenderMermaid();};if(mq.addEventListener){mq.addEventListener('change',f);}else if(mq.addListener){mq.addListener(f);}}});})()";
   const DEFAULT_PUBLISH_OVERRIDES =
     "html,body{background:var(--bg-app);}\n" +
     ".canvas{overflow:visible;height:auto;min-height:100vh;}\n" +
@@ -146,7 +148,9 @@
     }
     const clone = shell.cloneNode(true);
 
-    clone.querySelectorAll(".toc, .cmt-rail, .doc-status, .byline, .cx-num").forEach((node) => node.remove());
+    // 目次は残す (公開出力でも読み手が節を辿れるようにするため)。
+    // コメント rail とレビュー用の表示だけを外す
+    clone.querySelectorAll(".cmt-rail, .doc-status, .byline, .cx-num, .review-comment-badges").forEach((node) => node.remove());
 
     clone.querySelectorAll(".cx").forEach((element) => {
       const parent = element.parentNode;
@@ -190,7 +194,7 @@
     const density = root.getAttribute("data-density") || "compact";
     const docLang = root.lang || "ja";
     const canvas = document.getElementById("canvas");
-    const isFocus = canvas && canvas.classList.contains("is-focus");
+    const isWide = canvas && canvas.classList.contains("is-wide");
     const titleElement = clone.querySelector(".doc-title");
     const title = titleElement ? titleElement.textContent.trim() : "document";
 
@@ -208,6 +212,19 @@
     const css = await collectCSS();
     const publishOverrides = await fetchAssetText("assets/publish-overrides.css") || DEFAULT_PUBLISH_OVERRIDES;
     const mermaidScripts = await collectMermaidScripts(clone);
+    // 目次を残した出力には、移動と現在位置ハイライトの script を添える。
+    // これが無いと目次は「リンクは飛ぶがハイライトが動かない」状態になる
+    let tocNavScript = "";
+    if (clone.querySelector(".toc")) {
+      const tocNav = await fetchAssetText("assets/toc-nav.js");
+      if (tocNav) {
+        tocNavScript = "<script>\n" + tocNav + "\n</script>\n";
+      } else {
+        // toc-nav.js を同梱する前に render された bundle には asset が無い。黙って省略すると
+        // 目次が光らない HTML がそのまま公開されるので、書き出した人に知らせる
+        toast("目次の script が見つかりません。資料を render し直してから書き出してください");
+      }
+    }
     const html =
       "<!DOCTYPE html>\n<html lang=\"" + docLang + "\" data-density=\"" + density + "\">\n" +
       "<head>\n<meta charset=\"utf-8\">\n" +
@@ -226,8 +243,8 @@
       mermaidScripts +
       "</head>\n" +
       "<body class=\"is-published\">\n" +
-      "<main class=\"canvas" + (isFocus ? " is-focus" : "") + "\">\n" +
-      clone.outerHTML + "\n</main>\n</body>\n</html>\n";
+      "<main class=\"canvas" + (isWide ? " is-wide" : "") + "\">\n" +
+      clone.outerHTML + "\n</main>\n" + tocNavScript + "</body>\n</html>\n";
     return { html, title };
   }
 

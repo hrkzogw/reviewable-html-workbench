@@ -14,12 +14,19 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+# render.py と同じ検出 (属性付き pre/code の取りこぼし防止)
+_PRE_CODE_RE = re.compile(
+    r"<pre\b[^>]*>\s*<code\b",
+    re.IGNORECASE,
+)
+
 from scripts.html_review_workbench.common import (
     INTERACTIVE_STATE_JS_PATH,
     MERMAID_INIT_JS,
     PUBLISH_OVERRIDES_CSS_PATH,
     REPO_ROOT,
     TASK_CHECKLIST_JS_PATH,
+    TOC_NAV_JS_PATH,
 )
 
 ROOT = REPO_ROOT
@@ -62,15 +69,19 @@ def publish_bundle(root: Path, output: Path) -> dict[str, Any]:
     density = _extract_attr(source_html, r'data-density="([^"]*)"') or "compact"
 
     canvas_match = re.search(r'<main[^>]*class="canvas([^"]*)"', source_html)
-    is_focus = bool(canvas_match and "is-focus" in canvas_match.group(1))
+    is_wide = bool(canvas_match and "is-wide" in canvas_match.group(1))
 
     article = _extract_article(source_html)
     article = _strip_review_attrs(article)
     article = _strip_review_elements(article)
     article = _embed_images(article, root)
+    # 目次は本文と同じ doc-grid に置く。標準表示では出し、最大化 (is-wide) では CSS 側で隠す
+    toc = _fill_toc_heading(_strip_review_attrs(_extract_toc(source_html)), lang)
     mermaid_script = _inline_mermaid_script(source_html, article, root)
+    highlight_script = _inline_highlight_script(source_html, article, root)
     checklist_script = _inline_checklist_script(article, root)
     interactive_state_script = _inline_interactive_state_script(article, root)
+    toc_nav_script = _inline_toc_nav_script(toc, root)
     document_id = _extract_attr(source_html, r'data-document-id="([^"]*)"') or ""
 
     title = _extract_text(article, r'<h1 class="doc-title">(.*?)</h1>') or "document"
@@ -84,10 +95,13 @@ def publish_bundle(root: Path, output: Path) -> dict[str, Any]:
         css=css,
         publish_overrides=publish_overrides,
         article=article,
-        is_focus=is_focus,
+        toc=toc,
+        is_wide=is_wide,
         mermaid_script=mermaid_script,
+        highlight_script=highlight_script,
         checklist_script=checklist_script,
         interactive_state_script=interactive_state_script,
+        toc_nav_script=toc_nav_script,
         document_id=document_id,
     )
 
@@ -112,6 +126,32 @@ def _extract_article(html: str) -> str:
     if end == -1:
         raise PublishError("closing </article> not found")
     return html[start : end + len("</article>")]
+
+
+def _extract_toc(html: str) -> str:
+    """<nav class="toc">...</nav> を抽出する。
+
+    見つからない場合は空文字を返す。目次を持たない文書 (block が 1 つも title を
+    持たない場合) でも publish は成立させる。
+    """
+    m = re.search(r'<nav class="toc"[^>]*>', html)
+    if not m:
+        return ""
+    start = m.start()
+    end = html.find("</nav>", start)
+    if end == -1:
+        return ""
+    return html[start : end + len("</nav>")]
+
+
+def _fill_toc_heading(toc: str, lang: str) -> str:
+    """目次の見出しを文字で埋める。
+
+    preview では review-comments.js が i18n で入れるが、standalone に JS は無いため
+    空の見出しが余白だけ残ってしまう。
+    """
+    label = "目次" if lang.startswith("ja") else "Contents"
+    return re.sub(r'(<p class="toc-h"[^>]*>)\s*(</p>)', rf"\g<1>{label}\g<2>", toc)
 
 
 def _strip_review_attrs(html: str) -> str:
@@ -177,6 +217,38 @@ def _inline_mermaid_script(source_html: str, article: str, root: Path) -> str:
     )
 
 
+def _inline_highlight_script(source_html: str, article: str, root: Path) -> str:
+    """highlight.js 本体と init を standalone HTML に inline 化する。
+
+    本文に <pre><code が無い (または highlight asset が無い) 文書では何も差し込まない。
+    BSD-3-Clause banner は file 先頭の /*! */ として残る。
+    """
+    needs_highlight = (
+        "assets/highlight.min.js" in source_html
+        or "assets/highlight-init.js" in source_html
+        or _PRE_CODE_RE.search(article) is not None
+    )
+    if not needs_highlight:
+        return ""
+    hljs_path = root / "assets" / "highlight.min.js"
+    init_path = root / "assets" / "highlight-init.js"
+    if not hljs_path.is_file():
+        # render 済み bundle に無い場合は template 同梱へ fallback
+        hljs_path = ROOT / "templates" / "assets" / "highlight.min.js"
+    if not init_path.is_file():
+        init_path = ROOT / "templates" / "assets" / "highlight-init.js"
+    if not hljs_path.is_file():
+        raise PublishError(f"assets/highlight.min.js not found in {root}")
+    if not init_path.is_file():
+        raise PublishError(f"assets/highlight-init.js not found in {root}")
+    hljs_script = hljs_path.read_text(encoding="utf-8")
+    init_script = init_path.read_text(encoding="utf-8")
+    return (
+        f"<script>\n{hljs_script}\n</script>\n"
+        f"<script>\n{init_script}\n</script>\n"
+    )
+
+
 def _inline_checklist_script(article: str, root: Path) -> str:
     """作業チェックリスト asset を standalone HTML に inline 化する。
 
@@ -189,6 +261,22 @@ def _inline_checklist_script(article: str, root: Path) -> str:
         path = TASK_CHECKLIST_JS_PATH
     if not path.is_file():
         raise PublishError(f"assets/task-checklist.js not found in {root}")
+    return f"<script>\n{path.read_text(encoding='utf-8')}\n</script>\n"
+
+
+def _inline_toc_nav_script(toc: str, root: Path) -> str:
+    """目次の移動と現在位置ハイライトの script を inline 化する。
+
+    公開出力には review-comments.js が入らないため、目次があっても現在位置が光らず、
+    ジャンプ位置の調整も効かない。目次を出す文書にだけ差し込む。
+    """
+    if not toc:
+        return ""
+    path = root / "assets" / "toc-nav.js"
+    if not path.is_file():
+        path = TOC_NAV_JS_PATH
+    if not path.is_file():
+        raise PublishError(f"assets/toc-nav.js not found in {root}")
     return f"<script>\n{path.read_text(encoding='utf-8')}\n</script>\n"
 
 
@@ -247,16 +335,22 @@ def _assemble(
     css: str,
     publish_overrides: str,
     article: str,
-    is_focus: bool,
+    toc: str,
+    is_wide: bool,
     mermaid_script: str = "",
+    highlight_script: str = "",
     checklist_script: str = "",
     interactive_state_script: str = "",
+    toc_nav_script: str = "",
     document_id: str = "",
 ) -> str:
     """公開用 standalone HTML を組み立てる。"""
     esc_title = escape(title)
     esc_desc = escape(description)
-    focus_class = " is-focus" if is_focus else ""
+    wide_class = " is-wide" if is_wide else ""
+    # 目次は本文と同じ doc-grid の先頭に置く (report.html.j2 と同じ並び)。
+    # 目次を持たない文書では空にして 1 カラムのままにする
+    toc_block = f"{toc}\n" if toc else ""
     # チェックリストの保存 key は文書識別子に紐づくため、publish 版でも同じ値を残す
     doc_id_attr = f' data-document-id="{escape(document_id, quote=True)}"' if document_id else ""
 
@@ -276,15 +370,18 @@ def _assemble(
         f"{publish_overrides}"
         f"</style>\n"
         f"{mermaid_script}"
+        f"{highlight_script}"
         # article 内の inline script より先に RHWState を定義する必要があるため head に置く
         f"{interactive_state_script}"
         f"</head>\n"
         f'<body class="is-published"{doc_id_attr}>\n'
-        f'<main class="canvas{focus_class}">\n'
+        f'<main class="canvas{wide_class}">\n'
         f'<div class="doc-shell">\n<div class="doc-grid">\n'
+        f"{toc_block}"
         f"{article}\n"
         f"</div>\n</div>\n"
         f"</main>\n"
         f"{checklist_script}"
+        f"{toc_nav_script}"
         f"</body>\n</html>\n"
     )

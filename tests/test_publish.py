@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts.html_review_workbench.common import MERMAID_INIT_JS
 from scripts.html_review_workbench.publish import PublishError, publish_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +36,8 @@ def _create_minimal_bundle(bundle_dir: Path) -> None:
         '    <header class="topbar">\n'
         '      <div class="toolset">\n'
         '        <select id="filterSelect"><option value="all">All</option></select>\n'
-        '        <button id="focusToggle" type="button">Focus</button>\n'
+        '        <button id="tocToggle" type="button">Contents</button>\n'
+        '        <button id="commentsToggle" type="button">Comments</button>\n'
         '        <button id="publishToggle" type="button">Publish</button>\n'
         '        <button id="themeToggle" type="button">Theme</button>\n'
         "      </div>\n"
@@ -125,6 +127,8 @@ class TestPublishBundle(unittest.TestCase):
         # レビュー UI の DOM 要素が除去されていること
         self.assertNotIn('class="cmt-rail"', body_content)
         self.assertNotIn('class="pub-exit"', body_content)
+        self.assertNotIn("tocToggle", body_content)
+        self.assertNotIn("commentsToggle", body_content)
         self.assertNotIn("focusToggle", body_content)
         self.assertNotIn("filterSelect", body_content)
         self.assertNotIn("data-review-block", body_content)
@@ -143,8 +147,14 @@ class TestPublishBundle(unittest.TestCase):
         self.assertIn("<style>", content)
         self.assertNotIn('<link rel="stylesheet"', content)
 
-        # script タグがないこと
-        self.assertNotIn("<script", body_content)
+        # レビュー用の runtime が入らないこと。目次を出す文書には目次操作の script が
+        # 入るため「script が 1 つも無い」ではなく、レビュー側だけが無いことを見る。
+        # 判定には review-comments.js 固有の識別子を使う (「review-comments」の語だけだと
+        # 目次 script の説明 comment にも当たってしまう)
+        self.assertNotIn("<script src=", body_content)
+        self.assertNotIn("initPanelToggles", body_content)
+        self.assertNotIn("data-comments-toolbar", body_content)
+        self.assertNotIn("cmt-rail", body_content)
 
     def test_output_is_single_file(self) -> None:
         publish_bundle(self.bundle_dir, self.output_dir)
@@ -199,7 +209,7 @@ class TestPublishBundle(unittest.TestCase):
             '  <link rel="stylesheet" href="assets/style.css?v=test">\n',
             '  <link rel="stylesheet" href="assets/style.css?v=test">\n'
             '  <script src="assets/mermaid.min.js?v=test"></script>\n'
-            "  <script data-role=\"reviewable-mermaid-init\">mermaid.initialize({startOnLoad: true, theme: 'dark', securityLevel: 'strict'})</script>\n"
+            f'  <script data-role="reviewable-mermaid-init">{MERMAID_INIT_JS}</script>\n'
             '  <script src="assets/diagram-zoom.js?v=test" defer></script>\n',
         )
         html = html.replace(
@@ -214,7 +224,7 @@ class TestPublishBundle(unittest.TestCase):
         content = (self.output_dir / "index.html").read_text(encoding="utf-8")
         self.assertIn("/*! Mermaid test */", content)
         self.assertIn("/*! Diagram zoom test */", content)
-        self.assertIn('<script data-role="reviewable-mermaid-init">mermaid.initialize({startOnLoad: true, theme: \'dark\', securityLevel: \'strict\'})</script>', content)
+        self.assertIn(f'<script data-role="reviewable-mermaid-init">{MERMAID_INIT_JS}</script>', content)
         self.assertIn('<pre class="mermaid">erDiagram', content)
         self.assertNotIn('<script src="assets/mermaid.min.js', content)
         self.assertNotIn('<script src="assets/diagram-zoom.js', content)

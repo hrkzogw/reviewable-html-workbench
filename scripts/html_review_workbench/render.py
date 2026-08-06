@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 from html import escape
 from pathlib import Path
@@ -11,7 +12,10 @@ from typing import Any
 
 from scripts.html_review_workbench import __version__
 from scripts.html_review_workbench.common import (
+    EARLY_THEME_JS,
+    MAX_HEADING_LEVEL,
     MERMAID_INIT_JS,
+    MIN_HEADING_LEVEL,
     PUBLISH_EXPORT_JS_PATH,
     PUBLISH_OVERRIDES_CSS_PATH,
     REPO_ROOT,
@@ -32,6 +36,20 @@ MERMAID_JS_PATH = ROOT / "templates" / "assets" / "mermaid.min.js"
 DIAGRAM_ZOOM_JS_PATH = ROOT / "templates" / "assets" / "diagram-zoom.js"
 TASK_CHECKLIST_JS_PATH = ROOT / "templates" / "assets" / "task-checklist.js"
 INTERACTIVE_STATE_JS_PATH = ROOT / "templates" / "assets" / "interactive-state.js"
+TOC_NAV_JS_PATH = ROOT / "templates" / "assets" / "toc-nav.js"
+HIGHLIGHT_JS_PATH = ROOT / "templates" / "assets" / "highlight.min.js"
+HIGHLIGHT_INIT_JS_PATH = ROOT / "templates" / "assets" / "highlight-init.js"
+
+# <pre> と <code> の間・各タグの属性・空白/改行を許す (属性付き HTML の取りこぼし防止)
+_PRE_CODE_RE = re.compile(
+    r"<pre\b[^>]*>\s*<code\b",
+    re.IGNORECASE,
+)
+
+
+def _html_has_pre_code(html: str) -> bool:
+    """本文に pre>code があるか (属性付き・改行入りを含む)。"""
+    return _PRE_CODE_RE.search(html) is not None
 
 
 def render_bundle(model_path: Path, output_dir: Path) -> Path:
@@ -48,6 +66,9 @@ def render_bundle(model_path: Path, output_dir: Path) -> Path:
     image_outputs = _prepare_image_assets(model["blocks"], model_path.parent, output_dir)
     body_html, review_blocks = _render_blocks(model["blocks"], diagrams, image_outputs)
     has_rendered_mermaid = 'class="mermaid"' in body_html
+    # mermaid と同じ条件付き機構: 本文に pre>code がある時だけ highlight を同梱する
+    # (属性や改行が入っても検出する — NG-1)
+    has_pre_code = _html_has_pre_code(body_html)
     review_blocks.insert(
         0,
         {
@@ -74,8 +95,10 @@ def render_bundle(model_path: Path, output_dir: Path) -> Path:
             "summary": _render_optional_summary(model.get("summary"), doc_lang),
             "generated_at": escape(model["generated_at"]),
             "asset_version": escape(rendered_at, quote=True),
+            "early_theme_js": EARLY_THEME_JS,
             "palette_style": palette_style_block(metadata),
             "mermaid_head": _render_mermaid_head(rendered_at) if has_rendered_mermaid else "",
+            "highlight_head": _render_highlight_head(rendered_at) if has_pre_code else "",
             "body": body_html,
             "toc": _render_toc(model["blocks"]),
         }
@@ -89,6 +112,9 @@ def render_bundle(model_path: Path, output_dir: Path) -> Path:
     shutil.copyfile(COMMENTS_JS_PATH, assets_dir / "review-comments.js")
     shutil.copyfile(TASK_CHECKLIST_JS_PATH, assets_dir / "task-checklist.js")
     shutil.copyfile(INTERACTIVE_STATE_JS_PATH, assets_dir / "interactive-state.js")
+    # publish で inline する目次 script。preview 側では review-comments.js が同じ処理を持つので
+    # HTML からは読み込まないが、bundle には置いて publish が拾えるようにする
+    shutil.copyfile(TOC_NAV_JS_PATH, assets_dir / "toc-nav.js")
     asset_outputs = [
         "assets/style.css",
         "assets/publish-overrides.css",
@@ -106,6 +132,15 @@ def render_bundle(model_path: Path, output_dir: Path) -> Path:
         shutil.copyfile(DIAGRAM_ZOOM_JS_PATH, assets_dir / "diagram-zoom.js")
         asset_outputs.append("assets/mermaid.min.js")
         asset_outputs.append("assets/diagram-zoom.js")
+    if has_pre_code:
+        if not HIGHLIGHT_JS_PATH.is_file():
+            raise ValueError(f"highlight.js asset not found: {HIGHLIGHT_JS_PATH}")
+        if not HIGHLIGHT_INIT_JS_PATH.is_file():
+            raise ValueError(f"highlight-init asset not found: {HIGHLIGHT_INIT_JS_PATH}")
+        shutil.copyfile(HIGHLIGHT_JS_PATH, assets_dir / "highlight.min.js")
+        shutil.copyfile(HIGHLIGHT_INIT_JS_PATH, assets_dir / "highlight-init.js")
+        asset_outputs.append("assets/highlight.min.js")
+        asset_outputs.append("assets/highlight-init.js")
 
     manifest = {
         "schema_version": "1.0",
@@ -145,6 +180,15 @@ def _render_mermaid_head(asset_version: str) -> str:
         f'  <script src="assets/mermaid.min.js?v={version}"></script>\n'
         f'  <script data-role="reviewable-mermaid-init">{MERMAID_INIT_JS}</script>\n'
         f'  <script src="assets/diagram-zoom.js?v={version}" defer></script>'
+    )
+
+
+def _render_highlight_head(asset_version: str) -> str:
+    """highlight.js 本体と適用起動 script の tag を組み立てる。"""
+    version = escape(asset_version, quote=True)
+    return (
+        f'  <script src="assets/highlight.min.js?v={version}"></script>\n'
+        f'  <script src="assets/highlight-init.js?v={version}"></script>'
     )
 
 
@@ -252,30 +296,48 @@ def _render_toc(blocks: list[dict[str, Any]]) -> str:
             return ""
         return "<ol>\n" + "\n".join(items) + "\n</ol>"
 
-    html = '<ol class="toc-list">\n'
-    in_nested = False
+    # heading_level 2/3/4 を、そのまま入れ子の <ol> へ写す。
+    # level は「いま開いている <ol> が受け持つ見出しレベル」、
+    # li_open は「その階層の直前の <li> をまだ閉じていない」を表す。
+    parts: list[str] = ['<ol class="toc-list">']
+    level = MIN_HEADING_LEVEL
+    li_open = False
     for block in blocks:
         title = block.get("title")
         if not isinstance(title, str) or not title:
             continue
         block_id = escape(block["id"], quote=True)
-        heading_level = block["heading_level"]
-        if heading_level == 2:
-            if in_nested:
-                html += "</ol>\n</li>\n"
-                in_nested = False
-            html += f'<li class="toc-h2"><a href="#{block_id}">{escape(title)}</a>\n'
-            html += "<ol>\n"
-            in_nested = True
-        else:
-            if not in_nested:
-                html += '<li class="toc-h2"><span></span>\n<ol>\n'
-                in_nested = True
-            html += f'<li><a href="#{block_id}">{escape(title)}</a></li>\n'
-    if in_nested:
-        html += "</ol>\n</li>\n"
-    html += "</ol>"
-    return html
+        target = min(max(int(block["heading_level"]), MIN_HEADING_LEVEL), MAX_HEADING_LEVEL)
+        while target > level:
+            if not li_open:
+                # 親の見出しが無いまま下位が来た場合は空の親を立てる
+                parts.append('<li class="toc-h2"><span></span>')
+                li_open = True
+            parts.append("<ol>")
+            level += 1
+            li_open = False
+        while target < level:
+            if li_open:
+                parts.append("</li>")
+            parts.append("</ol>")
+            level -= 1
+            li_open = True  # 1 つ上の <li> は開いたままなので、次で閉じる
+        if li_open:
+            parts.append("</li>")
+            li_open = False
+        cls = ' class="toc-h2"' if target == MIN_HEADING_LEVEL else ""
+        parts.append(f'<li{cls}><a href="#{block_id}">{escape(title)}</a>')
+        li_open = True
+    while level > MIN_HEADING_LEVEL:
+        if li_open:
+            parts.append("</li>")
+        parts.append("</ol>")
+        level -= 1
+        li_open = True
+    if li_open:
+        parts.append("</li>")
+    parts.append("</ol>")
+    return "\n".join(parts)
 
 
 def _render_blocks(

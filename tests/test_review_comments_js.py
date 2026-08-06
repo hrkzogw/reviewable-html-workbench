@@ -29,6 +29,8 @@ class ReviewCommentsJavaScriptTest(unittest.TestCase):
             "findBestOccurrence",
             "activate",
             "initPublishToggle",
+            "initPanelToggles",
+            "keepReadingPosition",
             "setPublished",
             "threadCardState",
             "normalizeThreadStatus",
@@ -156,7 +158,11 @@ class ReviewCommentsJavaScriptTest(unittest.TestCase):
         self.assertIn('document.body.classList.contains("is-published")', script)
         self.assertIn("window.reviewableWorkbenchPublish.downloadPublishedDoc({ toastMessage: t.publishToast });", script)
         self.assertIn('document.querySelector("#canvas .doc-shell")', publish_script)
-        self.assertIn('clone.querySelectorAll(".toc, .cmt-rail, .doc-status, .byline, .cx-num")', publish_script)
+        # 書き出しで外すのはレビュー用の表示だけ。目次は読み手のために残す
+        for removed in (".cmt-rail", ".doc-status", ".byline", ".cx-num", ".review-comment-badges"):
+            self.assertIn(removed, publish_script, f"{removed} を書き出しから外していない")
+        self.assertNotIn('querySelectorAll(".toc,', publish_script)
+        self.assertIn('clone.querySelector(".toc")', publish_script)
         self.assertIn('clone.querySelectorAll(".cx")', publish_script)
         self.assertIn('clone.querySelectorAll(".review-comment-highlight")', publish_script)
         self.assertIn('clone.querySelectorAll(".review-comment-badge")', publish_script)
@@ -176,6 +182,88 @@ class ReviewCommentsJavaScriptTest(unittest.TestCase):
         self.assertIn('document.querySelector(\'script[data-role="reviewable-mermaid-init"]\')', script)
         self.assertIn("MERMAID_INIT_JS", script)
         self.assertIn("mermaidScripts +", script)
+
+    def test_publish_export_warns_when_toc_script_is_missing(self) -> None:
+        """asset を取れないまま黙って書き出すと、目次が光らない HTML が公開まで気づかれない。
+
+        判定基準の出所: 同じ状況で CLI 側の publish.py:_inline_toc_nav_script が repo の
+        template から補う実装になっていること (ブラウザ側は fetch できないので補えず、
+        知らせるしかない)。2026-08-05 に、asset を持たない bundle が実在することを確認した。
+        """
+        script = (ROOT / "templates/assets/publish-export.js").read_text(encoding="utf-8")
+        block = script[script.index('const tocNav = await fetchAssetText("assets/toc-nav.js")') :]
+        block = block[: block.index("const html =")]
+
+        self.assertIn("else", block)
+        self.assertIn("toast(", block)
+
+    def test_utility_bar_is_hidden_until_opened_from_toolbar(self) -> None:
+        """Export/Import バーが常時表示に戻ると、rail 下部の返信欄と送信ボタンを覆って
+        コメント操作ができなくなる。
+
+        判定基準の出所: 2026-08-05 のユーザー報告 2 件 (返信入力とバーが重なった
+        スクリーンショット。focus 連動の非表示でも未入力時の送信ボタンが覆われたままだった)
+        と、その修正設計 (既定 hidden + topbar の JSON ボタンで開閉)。
+        """
+        script = (ROOT / "templates/review-comments.js").read_text(encoding="utf-8")
+        self.assertIn('"review-comments-utility" hidden', script)
+        self.assertIn("initUtilityToggle", script)
+        self.assertIn("jsonToggle", script)
+        css = (ROOT / "templates/style.css").read_text(encoding="utf-8")
+        self.assertIn(".review-comments-utility[hidden] { display: none; }", css)
+
+    def test_card_click_scrolls_body_to_comment(self) -> None:
+        """カードをクリックしても本文が動かず、コメントの対象箇所を目視で探すことになる。
+
+        判定基準の出所: TASK-18 の決定事項 (カードクリックで本文ハイライトへスクロール、
+        ハイライト無しは所属 block へ、視界の上 15%〜70% にあるなら動かさない)。
+        """
+        script = (ROOT / "templates/review-comments.js").read_text(encoding="utf-8")
+        # カードクリックの handler から呼ばれている (関数定義の存在だけでは通らない形で見る)
+        self.assertIn("activate(thread.id, false);\n      scrollBodyToComment(thread);", script)
+        fn = script[script.index("function scrollBodyToComment") :]
+        fn = fn[: fn.index("\n  function ", 1)]
+        self.assertIn("commentSelector(thread.id)", fn)
+        self.assertIn("getElementById(thread.block_id)", fn)
+        self.assertIn("viewHeight * 0.15", fn)
+        self.assertIn("viewHeight * 0.7", fn)
+        self.assertIn('behavior: "smooth"', fn)
+
+    def test_column_widths_are_draggable_via_css_variables(self) -> None:
+        """列幅のドラッグ変更が失われると、目次・コメント列の幅を読者が調整できない。
+        変数化が崩れると保存済みの幅が layout に反映されず、既定幅に固定されたままになる。
+
+        判定基準の出所: TASK-17 の決定事項 (列幅は CSS 変数 --toc-w / --rail-w に一本化し、
+        ドラッグは変数の書き換えだけを行う。clamp は目次 160〜400 / コメント 240〜560)。
+        """
+        css = (ROOT / "templates/style.css").read_text(encoding="utf-8")
+        self.assertIn("var(--toc-w, 232px) minmax(0, 1fr) var(--rail-w, 332px)", css)
+        self.assertIn(".col-resizer", css)
+        script = (ROOT / "templates/review-comments.js").read_text(encoding="utf-8")
+        self.assertIn("initColumnResizers", script)
+        self.assertIn('{ key: "toc", varName: "--toc-w", host: ".toc", grow: 1, min: 160, max: 400 }', script)
+        self.assertIn('{ key: "rail", varName: "--rail-w", host: ".cmt-rail", grow: -1, min: 240, max: 560 }', script)
+        self.assertIn("COL_WIDTH_STORAGE_KEY", script)
+
+    def test_comment_markdown_renders_quotes_and_emphasis(self) -> None:
+        """agent 返信の > 引用や **強調** が記号のまま平文表示され、どこが引用で
+        どこが発言か読み分けられない。
+
+        判定基準の出所: 2026-08-05 のユーザー報告 (引用記号が生のまま並ぶ返信の
+        スクリーンショットと「どこが引用か分からない」の指摘) と、その修正設計
+        (escape を通した後に blockquote / strong / code だけへ変換する)。
+        """
+        script = (ROOT / "templates/review-comments.js").read_text(encoding="utf-8")
+        # 親コメントと返信の両方の表示に適用されている
+        self.assertIn("renderCommentMarkdown(thread.comment", script)
+        self.assertIn("renderCommentMarkdown(reply.body)", script)
+        # 編集用 textarea は生テキストのまま (markdown HTML を混ぜない)
+        self.assertIn("data-thread-comment-editor rows=\"3\" hidden>${escapeHtml(thread.comment", script)
+        # escape が変換より先 (本文の HTML を script として解釈させない)
+        fn = script[script.index("function renderInlineMarkdown") :]
+        fn = fn[: fn.index("return s;")]
+        self.assertLess(fn.index("escapeHtml"), fn.index("<code>"))
+        self.assertLess(fn.index("escapeHtml"), fn.index("<strong>"))
 
     def test_published_i18n_keys_exist(self) -> None:
         script = (ROOT / "templates/review-comments.js").read_text(encoding="utf-8")
