@@ -12,6 +12,8 @@
       submitBtn: "送信",
       resolveBtn: "解決",
       reopenBtn: "再オープン",
+      collapseLabel: "折りたたみ",
+      expandLabel: "展開",
       deleteBtn: "削除",
       commentCount: function (u, t) { return u + " 件未解決 / " + t + " 件"; },
       filterAll: "すべて",
@@ -52,6 +54,8 @@
       submitBtn: "Send",
       resolveBtn: "Resolve",
       reopenBtn: "Reopen",
+      collapseLabel: "Collapse",
+      expandLabel: "Expand",
       deleteBtn: "Delete",
       commentCount: function (u, t) { return u + " unresolved / " + t + " total"; },
       filterAll: "All",
@@ -119,6 +123,7 @@
     activeCommentId: null,
     filter: "all",
     positionFrame: 0,
+    collapsed: new Set(),
   };
 
   // コメントのハイライトと番号は本文の中へ後から差し込まれる。番号は inline なので文字幅が
@@ -257,6 +262,7 @@
       state.comments = local;
     }
     writeLocalComments();
+    seedCollapsedResolved();
     renderComments();
     revealProse();
   }
@@ -691,6 +697,11 @@
     card.dataset.for = thread.id || "";
     card.id = cardId(thread.id);
     card.tabIndex = 0;
+    if (cardState === "resolved" && state.collapsed.has(thread.id)) {
+      card.classList.add("is-collapsed");
+    } else {
+      state.collapsed.delete(thread.id);
+    }
     card.innerHTML = cardInner(thread, number);
     bindCommentCard(card, thread);
     return card;
@@ -717,6 +728,9 @@
       '<div class="cmt-head">',
       '  <div class="cmt-author"><span class="av">You</span> <span>Reviewer</span></div>',
       `  <span class="cmt-state">${escapeHtml(t.cardState[cardState])}</span>`,
+      cardState === "resolved"
+        ? '  <button type="button" class="cmt-collapse" data-thread-collapse aria-label="' + escapeHtml(t.collapseLabel) + '"></button>'
+        : "",
       "</div>",
       `<blockquote class="cmt-quote">${escapeHtml(thread.selected_text || thread.block_id || `Comment ${number}`)}</blockquote>`,
       `<div class="cmt-body review-comment-main-body" data-thread-comment-display tabindex="0">${renderCommentMarkdown(thread.comment || "")}</div>`,
@@ -734,6 +748,10 @@
   function bindCommentCard(card, thread) {
     card.addEventListener("click", (event) => {
       if (event.target.closest("button, textarea, select")) {
+        return;
+      }
+      if (expandCard(thread.id)) {
+        activate(thread.id, false);
         return;
       }
       activate(thread.id, false);
@@ -765,6 +783,10 @@
         event.preventDefault();
         await addReplyFromEditor(thread, event.target);
       }
+    });
+    card.querySelector("[data-thread-collapse]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setCollapsed(thread.id, !state.collapsed.has(thread.id));
     });
     card.querySelector("[data-thread-resolve]")?.addEventListener("click", async () => {
       await updateThreadStatus(thread, COMMENT_STATUS.resolved);
@@ -1032,6 +1054,7 @@
       return;
     }
     state.activeCommentId = commentId;
+    expandCard(commentId);
     setActiveClasses(commentId);
     schedulePositionCards();
     if (scrollCard) {
@@ -1562,14 +1585,46 @@
   }
 
   function isSubmitShortcut(event) {
+    if (event.isComposing) {
+      return false;
+    }
     return event.key === "Enter" && (event.metaKey || event.ctrlKey);
   }
 
+  // 返信欄も本文コメント欄と同じ確定キー (Cmd/Ctrl+Enter) に揃える。素の Enter は改行。
   function isReplySubmitShortcut(event) {
-    if (event.isComposing || event.shiftKey) {
+    return isSubmitShortcut(event);
+  }
+
+  // リロード直後は解決済みスレッドを畳んでおき、未解決を見つけやすくする。
+  // セッション中に解決したスレッドは畳まない (押した直後にカードが縮むのを避ける)。
+  function seedCollapsedResolved() {
+    state.collapsed = new Set(
+      state.comments.comments
+        .filter((thread) => thread.id && threadCardState(thread) === "resolved")
+        .map((thread) => thread.id)
+    );
+  }
+
+  function setCollapsed(commentId, collapsed) {
+    if (!commentId) {
+      return;
+    }
+    if (collapsed) {
+      state.collapsed.add(commentId);
+    } else {
+      state.collapsed.delete(commentId);
+    }
+    document.getElementById(cardId(commentId))?.classList.toggle("is-collapsed", collapsed);
+    schedulePositionCards();
+  }
+
+  function expandCard(commentId) {
+    if (!commentId || !state.collapsed.has(commentId)) {
       return false;
     }
-    return event.key === "Enter";
+    setCollapsed(commentId, false);
+    return true;
   }
 
   function replyAuthor(reply) {

@@ -1074,6 +1074,27 @@ figcaption .fc-no { font-family: var(--font-mono); font-weight: 600; color: var(
 .reply.from-agent .av { background: linear-gradient(140deg, var(--brand), var(--agent-accent)); }
 
 /* resolved banner inside card */
+/* 解決済みカードの折りたたみ (リロード直後は畳んだ状態で描画する) */
+.cmt-collapse {
+  margin-left: auto; flex: none; width: 20px; height: 20px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line-2); border-radius: var(--r-sm, 4px);
+  background: transparent; color: var(--ink-3); cursor: pointer; line-height: 1; font-size: 11px;
+}
+.cmt-collapse:hover { color: var(--ink); border-color: var(--line-3); }
+.cmt-collapse::after { content: "\25BE"; }
+.cmt.is-collapsed .cmt-collapse::after { content: "\25B8"; }
+.cmt.is-collapsed { opacity: .62; }
+.cmt.is-collapsed:hover { opacity: .85; }
+.cmt.is-collapsed .cmt-head { margin-bottom: 6px; }
+.cmt.is-collapsed .cmt-body,
+.cmt.is-collapsed .cmt-thread,
+.cmt.is-collapsed .cmt-resolved-by,
+.cmt.is-collapsed .cmt-foot,
+.cmt.is-collapsed [data-thread-comment-editor] { display: none !important; }
+.cmt.is-collapsed .cmt-quote {
+  margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .cmt-resolved-by { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 11px; color: var(--resolved); font-weight: 600; }
 
 /* card footer / actions */
